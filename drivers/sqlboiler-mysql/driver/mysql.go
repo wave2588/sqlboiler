@@ -347,7 +347,7 @@ func (m *MySQLDriver) UniqueKeysInfo(schema, tableName string) ([]*drivers.Prima
 	queryColumns := `
 	select kcu.constraint_name, kcu.column_name
 	from information_schema.key_column_usage as kcu
-	where table_name = ? and constraint_name in (?` + strings.Repeat(",?", len(ukeysName)-1) + `) and table_schema = ?
+	where table_name = ? and constraint_name in (?` +  strings.Repeat(",?", len(ukeysName)-1) + `) and table_schema = ?
 	order by kcu.constraint_name, kcu.ordinal_position;`
 
 	queryArgs := []interface{}{tableName}

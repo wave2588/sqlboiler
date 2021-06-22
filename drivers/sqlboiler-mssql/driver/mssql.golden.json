@@ -27,6 +27,7 @@
 					"id"
 				]
 			},
+			"uniq_keys": null,
 			"f_keys": null,
 			"is_join_table": false,
 			"to_one_relationships": [
@@ -70,6 +71,7 @@
 					"id"
 				]
 			},
+			"uniq_keys": null,
 			"f_keys": null,
 			"is_join_table": false,
 			"to_one_relationships": null,
@@ -1593,6 +1595,7 @@
 					"id"
 				]
 			},
+			"uniq_keys": null,
 			"f_keys": null,
 			"is_join_table": false,
 			"to_one_relationships": null,
@@ -1624,6 +1627,7 @@
 					"id"
 				]
 			},
+			"uniq_keys": null,
 			"f_keys": null,
 			"is_join_table": false,
 			"to_one_relationships": null,
@@ -1693,6 +1697,7 @@
 					"tag_id"
 				]
 			},
+			"uniq_keys": null,
 			"f_keys": [
 				{
 					"table": "video_tags",
@@ -1777,6 +1782,14 @@
 					"id"
 				]
 			},
+			"uniq_keys": [
+				{
+					"name": "UK_videos_sponsor",
+					"columns": [
+						"sponsor_id"
+					]
+				}
+			],
 			"f_keys": [
 				{
 					"table": "videos",

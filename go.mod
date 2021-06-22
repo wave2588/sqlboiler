@@ -4,7 +4,6 @@ go 1.14
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.4.1
-	github.com/daixiang0/gci v0.2.8 // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/denisenkom/go-mssqldb v0.10.0
 	github.com/ericlagergren/decimal v0.0.0-20181231230500-73749d4874d5
@@ -19,5 +18,4 @@ require (
 	github.com/volatiletech/randomize v0.0.1
 	github.com/volatiletech/strmangle v0.0.1
 	golang.org/x/crypto v0.0.0-20210506145944-38f3c27a63bf // indirect
-	mvdan.cc/gofumpt v0.1.1 // indirect
 )
