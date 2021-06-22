@@ -8,4 +8,5 @@ fmt: fmt-fetch
 
 build:
 	go build -o sqlboiler-mysql drivers/sqlboiler-mysql/main.go
+	go build -o sqlboiler-psql drivers/sqlboiler-psql/main.go
 	go build -o sqlboiler main.go
