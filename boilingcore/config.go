@@ -1,15 +1,26 @@
 package boilingcore
 
 import (
+	"fmt"
 	"io/fs"
 	"path/filepath"
 	"strings"
 	"text/template"
 
+	"github.com/friendsofgo/errors"
 	"github.com/spf13/cast"
 
 	"github.com/volatiletech/sqlboiler/v4/drivers"
 	"github.com/volatiletech/sqlboiler/v4/importers"
+)
+
+type TagCase string
+
+const (
+	TagCaseCamel TagCase = "camel"
+	TagCaseSnake TagCase = "snake"
+	TagCaseTitle TagCase = "title"
+	TagCaseAlias TagCase = "alias"
 )
 
 // Config for the running of the commands
@@ -37,19 +48,27 @@ type Config struct {
 	NoBackReferencing bool     `toml:"no_back_reference,omitempty" json:"no_back_reference,omitempty"`
 	AlwaysWrapErrors  bool     `toml:"always_wrap_errors,omitempty" json:"always_wrap_errors,omitempty"`
 	Wipe              bool     `toml:"wipe,omitempty" json:"wipe,omitempty"`
-	StructTagCasing   string   `toml:"struct_tag_casing,omitempty" json:"struct_tag_casing,omitempty"`
-	RelationTag       string   `toml:"relation_tag,omitempty" json:"relation_tag,omitempty"`
-	TagIgnore         []string `toml:"tag_ignore,omitempty" json:"tag_ignore,omitempty"`
+
+	StructTagCases StructTagCases `toml:"struct_tag_cases,omitempty" json:"struct_tag_cases,omitempty"`
+
+	// StructTagCasing is a legacy config field, which will be migrated to StructTagCases in the future.
+	// When struct-tag-casing is defined, it will be converted to StructTagCases
+	// Deprecated: use StructTagCases instead.
+	StructTagCasing string `toml:"struct_tag_casing,omitempty" json:"struct_tag_casing,omitempty"`
+
+	RelationTag string   `toml:"relation_tag,omitempty" json:"relation_tag,omitempty"`
+	TagIgnore   []string `toml:"tag_ignore,omitempty" json:"tag_ignore,omitempty"`
 
 	Imports importers.Collection `toml:"imports,omitempty" json:"imports,omitempty"`
 
 	DefaultTemplates    fs.FS            `toml:"-" json:"-"`
 	CustomTemplateFuncs template.FuncMap `toml:"-" json:"-"`
 
-	Aliases      Aliases       `toml:"aliases,omitempty" json:"aliases,omitempty"`
-	TypeReplaces []TypeReplace `toml:"type_replaces,omitempty" json:"type_replaces,omitempty"`
-	AutoColumns  AutoColumns   `toml:"auto_columns,omitempty" json:"auto_columns,omitempty"`
-	Inflections  Inflections   `toml:"inflections,omitempty" json:"inflections,omitempty"`
+	Aliases      Aliases              `toml:"aliases,omitempty" json:"aliases,omitempty"`
+	TypeReplaces []TypeReplace        `toml:"type_replaces,omitempty" json:"type_replaces,omitempty"`
+	AutoColumns  AutoColumns          `toml:"auto_columns,omitempty" json:"auto_columns,omitempty"`
+	Inflections  Inflections          `toml:"inflections,omitempty" json:"inflections,omitempty"`
+	ForeignKeys  []drivers.ForeignKey `toml:"foreign_keys,omitempty" json:"foreign_keys,omitempty" `
 
 	Version string `toml:"version" json:"version"`
 }
@@ -58,6 +77,13 @@ type AutoColumns struct {
 	Created string `toml:"created,omitempty" json:"created,omitempty"`
 	Updated string `toml:"updated,omitempty" json:"updated,omitempty"`
 	Deleted string `toml:"deleted,omitempty" json:"deleted,omitempty"`
+}
+
+type StructTagCases struct {
+	Json TagCase `toml:"json,omitempty" json:"json,omitempty"`
+	Yaml TagCase `toml:"yaml,omitempty" json:"yaml,omitempty"`
+	Toml TagCase `toml:"toml,omitempty" json:"toml,omitempty"`
+	Boil TagCase `toml:"boil,omitempty" json:"boil,omitempty"`
 }
 
 // TypeReplace replaces a column type with something else
@@ -91,27 +117,27 @@ func (c *Config) OutputDirDepth() int {
 //
 // It also supports two different syntaxes, because of viper:
 //
-//   [aliases.tables.table_name]
-//   fields... = "values"
-//     [aliases.tables.columns]
-//     colname = "alias"
-//     [aliases.tables.relationships.fkey_name]
-//     local   = "x"
-//     foreign = "y"
+//	[aliases.tables.table_name]
+//	fields... = "values"
+//	  [aliases.tables.columns]
+//	  colname = "alias"
+//	  [aliases.tables.relationships.fkey_name]
+//	  local   = "x"
+//	  foreign = "y"
 //
 // Or alternatively (when toml key names or viper's
 // lowercasing of key names gets in the way):
 //
-//   [[aliases.tables]]
-//   name = "table_name"
-//   fields... = "values"
-//     [[aliases.tables.columns]]
-//     name  = "colname"
-//     alias = "alias"
-//     [[aliases.tables.relationships]]
-//     name    = "fkey_name"
-//     local   = "x"
-//     foreign = "y"
+//	[[aliases.tables]]
+//	name = "table_name"
+//	fields... = "values"
+//	  [[aliases.tables.columns]]
+//	  name  = "colname"
+//	  alias = "alias"
+//	  [[aliases.tables.relationships]]
+//	  name    = "fkey_name"
+//	  local   = "x"
+//	  foreign = "y"
 func ConvertAliases(i interface{}) (a Aliases) {
 	if i == nil {
 		return a
@@ -282,4 +308,82 @@ func columnFromInterface(i interface{}) (col drivers.Column) {
 	}
 
 	return col
+}
+
+// ConvertForeignKeys is necessary because viper
+//
+// It also supports two different syntaxes, because of viper:
+//
+//	[foreign_keys.fk_1]
+//	table = "table_name"
+//	column = "column_name"
+//	foreign_table = "foreign_table_name"
+//	foreign_column = "foreign_column_name"
+//
+// Or alternatively (when toml key names or viper's
+// lowercasing of key names gets in the way):
+//
+//	[[foreign_keys]]
+//	name = "fk_1"
+//	table = "table_name"
+//	column = "column_name"
+//	foreign_table = "foreign_table_name"
+//	foreign_column = "foreign_column_name"
+func ConvertForeignKeys(i interface{}) (fks []drivers.ForeignKey) {
+	if i == nil {
+		return nil
+	}
+
+	iterateMapOrSlice(i, func(name string, obj interface{}) {
+		t := cast.ToStringMap(obj)
+
+		fk := drivers.ForeignKey{
+			Table:         cast.ToString(t["table"]),
+			Name:          name,
+			Column:        cast.ToString(t["column"]),
+			ForeignTable:  cast.ToString(t["foreign_table"]),
+			ForeignColumn: cast.ToString(t["foreign_column"]),
+		}
+		if err := validateForeignKey(fk); err != nil {
+			panic(errors.Errorf("invalid foreign key %s: %s", name, err))
+		}
+		fks = append(fks, fk)
+	})
+
+	if err := validateDuplicateForeignKeys(fks); err != nil {
+		panic(errors.Errorf("invalid foreign keys: %s", err))
+	}
+
+	return fks
+}
+
+func validateForeignKey(fk drivers.ForeignKey) error {
+	if fk.Name == "" {
+		return errors.New("foreign key must have a name")
+	}
+	if fk.Table == "" {
+		return errors.New("foreign key must have a table")
+	}
+	if fk.Column == "" {
+		return errors.New("foreign key must have a column")
+	}
+	if fk.ForeignTable == "" {
+		return errors.New("foreign key must have a foreign table")
+	}
+	if fk.ForeignColumn == "" {
+		return errors.New("foreign key must have a foreign column")
+	}
+	return nil
+}
+
+func validateDuplicateForeignKeys(fks []drivers.ForeignKey) error {
+	fkMap := make(map[string]drivers.ForeignKey)
+	for _, fk := range fks {
+		key := fmt.Sprintf("%s.%s", fk.Table, fk.Column)
+		if _, ok := fkMap[key]; ok {
+			return errors.Errorf("duplicate foreign key name: %s", fk.Name)
+		}
+		fkMap[key] = fk
+	}
+	return nil
 }

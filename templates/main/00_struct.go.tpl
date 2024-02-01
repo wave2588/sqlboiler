@@ -7,19 +7,39 @@ type {{$alias.UpSingular}} struct {
 	{{- $colAlias := $alias.Column $column.Name -}}
 	{{- $orig_col_name := $column.Name -}}
 	{{- range $column.Comment | splitLines -}} // {{ . }}
-	{{end -}}
+	{{ end -}}
+
 	{{if ignore $orig_tbl_name $orig_col_name $.TagIgnore -}}
 	{{$colAlias}} {{$column.Type}} `{{generateIgnoreTags $.Tags}}boil:"{{$column.Name}}" json:"-" toml:"-" yaml:"-"`
-	{{else if eq $.StructTagCasing "title" -}}
-	{{$colAlias}} {{$column.Type}} `{{generateTags $.Tags $column.Name}}boil:"{{$column.Name}}" json:"{{$column.Name | titleCase}}{{if $column.Nullable}},omitempty{{end}}" toml:"{{$column.Name | titleCase}}" yaml:"{{$column.Name | titleCase}}{{if $column.Nullable}},omitempty{{end}}"`
-	{{else if eq $.StructTagCasing "camel" -}}
-	{{$colAlias}} {{$column.Type}} `{{generateTags $.Tags $column.Name}}boil:"{{$column.Name}}" json:"{{$column.Name | camelCase}}{{if $column.Nullable}},omitempty{{end}}" toml:"{{$column.Name | camelCase}}" yaml:"{{$column.Name | camelCase}}{{if $column.Nullable}},omitempty{{end}}"`
-	{{else if eq $.StructTagCasing "alias" -}}
-	{{$colAlias}} {{$column.Type}} `{{generateTags $.Tags $colAlias}}boil:"{{$column.Name}}" json:"{{$colAlias}}{{if $column.Nullable}},omitempty{{end}}" toml:"{{$colAlias}}" yaml:"{{$colAlias}}{{if $column.Nullable}},omitempty{{end}}"`
-	{{else -}}
-	{{$colAlias}} {{$column.Type}} `{{generateTags $.Tags $column.Name}}boil:"{{$column.Name}}" json:"{{$column.Name}}{{if $column.Nullable}},omitempty{{end}}" toml:"{{$column.Name}}" yaml:"{{$column.Name}}{{if $column.Nullable}},omitempty{{end}}"`
-	{{end -}}
-	{{end -}}
+	{{ else -}}
+
+	{{- /* render column alias and column type */ -}}
+	{{ $colAlias }} {{ $column.Type -}}
+
+	{{- /*
+	  handle struct tags
+	  StructTagCasing will be replaced with $.StructTagCases
+	  however we need to keep this backward compatible
+	  $.StructTagCasing will only be used when it's set to "alias"
+    */ -}}
+	`
+	{{- if eq $.StructTagCasing "alias" -}}
+	    {{- generateTags $.Tags $colAlias -}}
+	    {{- generateTagWithCase "boil" $column.Name $colAlias "alias" false -}}
+	    {{- generateTagWithCase "json" $column.Name $colAlias "alias" $column.Nullable -}}
+	    {{- generateTagWithCase "toml" $column.Name $colAlias "alias" false -}}
+	    {{- trim (generateTagWithCase "yaml" $column.Name $colAlias "alias" $column.Nullable) -}}
+	{{- else -}}
+	    {{- generateTags $.Tags $column.Name }}
+	    {{- generateTagWithCase "boil" $column.Name $colAlias $.StructTagCases.Boil false -}}
+	    {{- generateTagWithCase "json" $column.Name $colAlias $.StructTagCases.Json $column.Nullable -}}
+	    {{- generateTagWithCase "toml" $column.Name $colAlias $.StructTagCases.Toml false -}}
+	    {{- trim (generateTagWithCase "yaml" $column.Name $colAlias $.StructTagCases.Yaml $column.Nullable) -}}
+	{{- end -}}
+	`
+	{{ end -}}
+	{{ end -}}
+
 	{{- if or .Table.IsJoinTable .Table.IsView -}}
 	{{- else}}
 	R *{{$alias.DownSingular}}R `{{generateTags $.Tags $.RelationTag}}boil:"{{$.RelationTag}}" json:"{{$.RelationTag}}" toml:"{{$.RelationTag}}" yaml:"{{$.RelationTag}}"`
@@ -63,6 +83,11 @@ func (w {{$name}}) LT(x {{.Type}}) qm.QueryMod { return qmhelper.Where(w.field, 
 func (w {{$name}}) LTE(x {{.Type}}) qm.QueryMod { return qmhelper.Where(w.field, qmhelper.LTE, x) }
 func (w {{$name}}) GT(x {{.Type}}) qm.QueryMod { return qmhelper.Where(w.field, qmhelper.GT, x) }
 func (w {{$name}}) GTE(x {{.Type}}) qm.QueryMod { return qmhelper.Where(w.field, qmhelper.GTE, x) }
+		{{if or (eq .Type "string") (eq .Type "null.String") -}}
+func (w {{$name}}) LIKE(x {{.Type}}) qm.QueryMod { return qm.Where(w.field+" LIKE ?", x) }
+func (w {{$name}}) NLIKE(x {{.Type}}) qm.QueryMod { return qm.Where(w.field+" NOT LIKE ?", x) }
+			{{- block "where_ilike_override" . }}{{- end}}
+		{{end -}}
 		{{if or (isPrimitive .Type) (isNullPrimitive .Type) (isEnumDBType .DBType) -}}
 func (w {{$name}}) IN(slice []{{convertNullToPrimitive .Type}}) qm.QueryMod {
 	values := make([]interface{}, 0, len(slice))

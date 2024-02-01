@@ -11,12 +11,14 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/volatiletech/sqlboiler/v4/importers"
 
 	"github.com/friendsofgo/errors"
-	"github.com/volatiletech/sqlboiler/v4/drivers"
 	"github.com/volatiletech/strmangle"
+
+	"github.com/volatiletech/sqlboiler/v4/drivers"
 
 	// Side-effect import sql driver
 	_ "github.com/lib/pq"
@@ -45,7 +47,8 @@ type PostgresDriver struct {
 	addEnumTypes   bool
 	enumNullPrefix string
 
-	uniqueColumns map[columnIdentifier]struct{}
+	uniqueColumns     *sync.Map
+	configForeignKeys []drivers.ForeignKey
 }
 
 type columnIdentifier struct {
@@ -103,6 +106,7 @@ func (p *PostgresDriver) Assemble(config drivers.Config) (dbinfo *drivers.DBInfo
 	p.addEnumTypes, _ = config[drivers.ConfigAddEnumTypes].(bool)
 	p.enumNullPrefix = strmangle.TitleCase(config.DefaultString(drivers.ConfigEnumNullPrefix, "Null"))
 	p.connStr = PSQLBuildQueryString(user, pass, dbname, host, port, sslmode)
+	p.configForeignKeys = config.MustForeignKeys(drivers.ConfigForeignKeys)
 	p.conn, err = sql.Open("postgres", p.connStr)
 	if err != nil {
 		return nil, errors.Wrap(err, "sqlboiler-psql failed to connect to database")
@@ -325,7 +329,7 @@ func (p *PostgresDriver) loadUniqueColumns() error {
 	if p.uniqueColumns != nil {
 		return nil
 	}
-	p.uniqueColumns = map[columnIdentifier]struct{}{}
+	p.uniqueColumns = &sync.Map{}
 	query := `with
 method_a as (
     select
@@ -372,7 +376,7 @@ select * from results;
 		if err := rows.Scan(&c.Schema, &c.Table, &c.Column); err != nil {
 			return errors.Wrapf(err, "unable to scan unique entry row")
 		}
-		p.uniqueColumns[c] = struct{}{}
+		p.uniqueColumns.Store(c, struct{}{})
 	}
 	return nil
 }
@@ -612,8 +616,7 @@ func (p *PostgresDriver) Columns(schema, tableName string, whitelist, blacklist 
 		if err := rows.Scan(&colName, &colType, &colFullType, &udtName, &arrayType, &domainName, &defaultValue, &comment, &nullable, &generated, &identity); err != nil {
 			return nil, errors.Wrapf(err, "unable to scan for table %s", tableName)
 		}
-
-		_, unique := p.uniqueColumns[columnIdentifier{schema, tableName, colName}]
+		_, unique := p.uniqueColumns.Load(columnIdentifier{schema, tableName, colName})
 		column := drivers.Column{
 			Name:          colName,
 			DBType:        colType,
@@ -776,6 +779,14 @@ func (p *PostgresDriver) UniqueKeysInfo(schema, tableName string) ([]*drivers.Pr
 
 // ForeignKeyInfo retrieves the foreign keys for a given table name.
 func (p *PostgresDriver) ForeignKeyInfo(schema, tableName string) ([]drivers.ForeignKey, error) {
+	dbForeignKeys, err := p.foreignKeyInfoFromDB(schema, tableName)
+	if err != nil {
+		return nil, errors.Wrap(err, "read foreign keys info from db")
+	}
+
+	return drivers.CombineConfigAndDBForeignKeys(p.configForeignKeys, tableName, dbForeignKeys), nil
+}
+func (p *PostgresDriver) foreignKeyInfoFromDB(schema, tableName string) ([]drivers.ForeignKey, error) {
 	var fkeys []drivers.ForeignKey
 
 	whereConditions := []string{"pgn.nspname = $2", "pgc.relname = $1", "pgcon.contype = 'f'"}
@@ -793,7 +804,7 @@ func (p *PostgresDriver) ForeignKeyInfo(schema, tableName string) ([]drivers.For
 	from pg_namespace pgn
 		inner join pg_class pgc on pgn.oid = pgc.relnamespace and pgc.relkind = 'r'
 		inner join pg_constraint pgcon on pgn.oid = pgcon.connamespace and pgc.oid = pgcon.conrelid
-		inner join pg_class dstlookupname on pgcon.confrelid = dstlookupname.oid
+		inner join pg_class dstlookupname on pgcon.confrelid = dstlookupname.oid and pgn.oid = dstlookupname.relnamespace
 		inner join pg_attribute pgasrc on pgc.oid = pgasrc.attrelid and pgasrc.attnum = ANY(pgcon.conkey)
 		inner join pg_attribute pgadst on pgcon.confrelid = pgadst.attrelid and pgadst.attnum = ANY(pgcon.confkey)
 	where %s
@@ -1045,7 +1056,6 @@ func (p PostgresDriver) Imports() (importers.Collection, error) {
 				`"database/sql"`,
 				`"fmt"`,
 				`"io"`,
-				`"io/ioutil"`,
 				`"os"`,
 				`"os/exec"`,
 				`"regexp"`,
@@ -1120,6 +1130,9 @@ func (p PostgresDriver) Imports() (importers.Collection, error) {
 			ThirdParty: importers.List{`"github.com/volatiletech/sqlboiler/v4/types"`},
 		},
 		"types.Decimal": {
+			ThirdParty: importers.List{`"github.com/volatiletech/sqlboiler/v4/types"`},
+		},
+		"types.Byte": {
 			ThirdParty: importers.List{`"github.com/volatiletech/sqlboiler/v4/types"`},
 		},
 		"types.BytesArray": {

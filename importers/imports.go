@@ -156,7 +156,6 @@ func MapFromInterface(intf interface{}) (Map, error) {
 		m[name] = s
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -212,6 +211,9 @@ func NewDefaultImports() Collection {
 
 	col.Singleton = Map{
 		"boil_queries": {
+			Standard: List{
+				`"regexp"`,
+			},
 			ThirdParty: List{
 				`"github.com/volatiletech/sqlboiler/v4/drivers"`,
 				`"github.com/volatiletech/sqlboiler/v4/queries"`,
@@ -267,7 +269,6 @@ func NewDefaultImports() Collection {
 				`"bytes"`,
 				`"fmt"`,
 				`"io"`,
-				`"io/ioutil"`,
 				`"math/rand"`,
 				`"regexp"`,
 			},
@@ -276,6 +277,11 @@ func NewDefaultImports() Collection {
 			},
 		},
 		"boil_suites_test": {
+			Standard: List{
+				`"testing"`,
+			},
+		},
+		"boil_relationship_test": {
 			Standard: List{
 				`"testing"`,
 			},
